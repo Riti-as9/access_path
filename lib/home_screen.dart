@@ -1,8 +1,9 @@
-import 'detail_screen.dart';
+﻿import 'detail_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'models.dart';
 import 'store.dart';
+import 'add_place_screen.dart';
 
 Color scoreColor(double? s) {
   if (s == null) return Colors.grey.shade700;
@@ -37,6 +38,14 @@ class HomeScreen extends StatelessWidget {
             onPressed: () => store.setHighContrast(!store.highContrast),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => const AddPlaceScreen()),
+        ),
+        icon: const Icon(Icons.add_location_alt),
+        label: const Text('Add place'),
       ),
       body: !store.loaded
           ? const Center(child: CircularProgressIndicator())
@@ -185,9 +194,9 @@ class PlaceCard extends StatelessWidget {
                             .textTheme
                             .titleMedium
                             ?.copyWith(fontWeight: FontWeight.bold)),
-                    Text('${place.category} · ${place.address}'),
+                    Text('${place.category} Â· ${place.address}'),
                     const SizedBox(height: 4),
-                    Text('${place.confidence} · ${place.reviews.length} reviews',
+                    Text('${place.confidence} Â· ${place.reviews.length} reviews',
                         style: Theme.of(context).textTheme.bodySmall),
                     if (place.hasRecentBarrier)
                       Padding(
@@ -217,3 +226,4 @@ class PlaceCard extends StatelessWidget {
     );
   }
 }
+

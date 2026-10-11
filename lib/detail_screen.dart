@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'models.dart';
 import 'store.dart';
+import 'review_screen.dart';
 import 'home_screen.dart' show scoreColor, scoreWord;
 
 // Simple offline summary. Step 7 adds the Gemini AI summary on top of this.
@@ -49,6 +50,14 @@ class PlaceDetailScreen extends StatelessWidget {
 
     return Scaffold(
       appBar: AppBar(title: Text(place.name)),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () => Navigator.push(
+          context,
+          MaterialPageRoute(builder: (_) => ReviewScreen(placeId: place.id)),
+        ),
+        icon: const Icon(Icons.rate_review),
+        label: const Text('Add review'),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -115,9 +124,9 @@ class PlaceDetailScreen extends StatelessWidget {
                   children: [
                     Text('Score for ${profile.label}',
                         style: Theme.of(context).textTheme.titleMedium),
-                    Text('${place.category} · ${place.address}'),
+                    Text('${place.category} Â· ${place.address}'),
                     const SizedBox(height: 4),
-                    Text('${place.confidence} · ${place.reviews.length} reviews',
+                    Text('${place.confidence} Â· ${place.reviews.length} reviews',
                         style: Theme.of(context).textTheme.bodySmall),
                   ],
                 ),
@@ -223,3 +232,4 @@ class _CriterionRow extends StatelessWidget {
     );
   }
 }
+
