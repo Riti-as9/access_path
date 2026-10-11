@@ -1,24 +1,15 @@
-﻿import 'detail_screen.dart';
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'detail_screen.dart';
 import 'models.dart';
 import 'store.dart';
 import 'add_place_screen.dart';
+import 'compare_screen.dart';
+import 'extras.dart';
+import 'ui_kit.dart';
 
-Color scoreColor(double? s) {
-  if (s == null) return Colors.grey.shade700;
-  if (s >= 75) return const Color(0xFF2E7D32);
-  if (s >= 50) return const Color(0xFFEF6C00);
-  return const Color(0xFFC62828);
-}
-
-// A word next to the colour, so colour is never the only signal
-String scoreWord(double? s) {
-  if (s == null) return 'No data';
-  if (s >= 75) return 'Good';
-  if (s >= 50) return 'Fair';
-  return 'Poor';
-}
+// other files import these from here
+export 'ui_kit.dart' show scoreColor, scoreWord;
 
 class HomeScreen extends StatelessWidget {
   const HomeScreen({super.key});
@@ -26,16 +17,36 @@ class HomeScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final places = store.visiblePlaces;
+    final ex = context.watch<ExtrasStore>();
+    final cs = Theme.of(context).colorScheme;
+    final places =
+    sortPlaces(store.visiblePlaces.toList(), ex.sortMode, store.profile);
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('AccessPath'),
+        title: const Text('Explore'),
         actions: [
           IconButton(
-            tooltip: 'Toggle high contrast',
-            icon: Icon(store.highContrast ? Icons.contrast : Icons.contrast_outlined),
-            onPressed: () => store.setHighContrast(!store.highContrast),
+            tooltip: 'Compare two places',
+            icon: const Icon(Icons.compare_arrows),
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => const CompareScreen()),
+            ),
+          ),
+          IconButton(
+            tooltip: 'Sort and filter',
+            icon: Badge(
+              isLabelVisible: store.activeFilters.isNotEmpty,
+              label: Text('${store.activeFilters.length}'),
+              child: const Icon(Icons.tune),
+            ),
+            onPressed: () => showFilterSheet(context),
+          ),
+          IconButton(
+            tooltip: 'Display settings',
+            icon: const Icon(Icons.text_fields),
+            onPressed: () => showSettingsSheet(context),
           ),
         ],
       ),
@@ -51,36 +62,35 @@ class HomeScreen extends StatelessWidget {
           ? const Center(child: CircularProgressIndicator())
           : Column(
         children: [
-          // Search
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
             child: TextField(
               onChanged: store.setQuery,
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 hintText: 'Search places or categories',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(28)),
-                isDense: true,
+                prefixIcon: Icon(Icons.search),
               ),
             ),
           ),
-          // Profile selector
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 4, 12, 0),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: Text('Score for:', style: Theme.of(context).textTheme.labelLarge),
+              child: Text('Score for',
+                  style: Theme.of(context).textTheme.labelLarge),
             ),
           ),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
+          SizedBox(
+            height: 44,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               children: [
                 for (final p in Profile.values)
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
+                      avatar: Icon(profileIcon(p.label), size: 18),
                       label: Text(p.label),
                       selected: store.profile == p,
                       onSelected: (_) => store.setProfile(p),
@@ -89,16 +99,18 @@ class HomeScreen extends StatelessWidget {
               ],
             ),
           ),
-          // Requirement filters
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Row(
+          const SizedBox(height: 4),
+          SizedBox(
+            height: 44,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
               children: [
                 for (final e in filterLabels.entries)
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: FilterChip(
+                      avatar: Icon(criterionIcon(e.value), size: 18),
                       label: Text(e.value),
                       selected: store.activeFilters.contains(e.key),
                       onSelected: (_) => store.toggleFilter(e.key),
@@ -107,21 +119,40 @@ class HomeScreen extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(height: 8),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 10, 20, 2),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '${places.length} ${places.length == 1 ? "place" : "places"} \u00B7 ${ex.sortMode.label}',
+                style: Theme.of(context)
+                    .textTheme
+                    .labelMedium
+                    ?.copyWith(color: cs.onSurfaceVariant),
+              ),
+            ),
+          ),
           Expanded(
             child: places.isEmpty
-                ? const Center(child: Text('No places match your filters'))
+                ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.search_off,
+                      size: 56, color: cs.onSurfaceVariant),
+                  const SizedBox(height: 12),
+                  const Text('No places match your filters'),
+                ],
+              ),
+            )
                 : ListView.builder(
+              padding: const EdgeInsets.only(bottom: 100),
               itemCount: places.length,
               itemBuilder: (context, i) => PlaceCard(
+                index: i,
                 place: places[i],
                 profile: store.profile,
-                onTap: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => PlaceDetailScreen(placeId: places[i].id),
-                  ),
-                ),
+                section: 'explore',
               ),
             ),
           ),
@@ -134,92 +165,132 @@ class HomeScreen extends StatelessWidget {
 class PlaceCard extends StatelessWidget {
   final Place place;
   final Profile profile;
-  final VoidCallback onTap;
+  final int index;
+
+  /// Which list the card is in; used to make the Hero tag unique.
+  final String section;
 
   const PlaceCard({
     super.key,
     required this.place,
     required this.profile,
-    required this.onTap,
+    required this.section,
+    this.index = 0,
   });
 
   @override
   Widget build(BuildContext context) {
     final s = place.score(profile);
-    final scoreText = s == null ? '-' : s.round().toString();
+    final cs = Theme.of(context).colorScheme;
+    final tag = '$section-${place.id}';
 
-    return Card(
-      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              Semantics(
-                label: s == null
-                    ? 'No accessibility score yet'
-                    : 'Accessibility score $scoreText out of 100 for ${profile.label}, ${scoreWord(s)}',
-                child: ExcludeSemantics(
-                  child: Container(
-                    width: 68,
-                    height: 68,
-                    decoration: BoxDecoration(
-                      color: scoreColor(s),
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(scoreText,
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 24,
-                                fontWeight: FontWeight.bold)),
-                        Text(scoreWord(s),
-                            style: const TextStyle(color: Colors.white, fontSize: 12)),
-                      ],
-                    ),
-                  ),
+    return FadeSlideIn(
+      index: index,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withAlpha(14),
+                blurRadius: 14,
+                offset: const Offset(0, 6),
+              ),
+            ],
+          ),
+          child: Material(
+            color: cs.surface,
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(22),
+              side: BorderSide(color: cs.outlineVariant.withAlpha(120)),
+            ),
+            child: InkWell(
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      PlaceDetailScreen(placeId: place.id, heroTag: tag),
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(14, 14, 6, 14),
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(place.name,
-                        style: Theme.of(context)
-                            .textTheme
-                            .titleMedium
-                            ?.copyWith(fontWeight: FontWeight.bold)),
-                    Text('${place.category} Â· ${place.address}'),
-                    const SizedBox(height: 4),
-                    Text('${place.confidence} Â· ${place.reviews.length} reviews',
-                        style: Theme.of(context).textTheme.bodySmall),
-                    if (place.hasRecentBarrier)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Row(
-                          children: [
-                            Icon(Icons.warning_amber_rounded,
-                                size: 18, color: Colors.red.shade400),
-                            const SizedBox(width: 4),
-                            Flexible(
-                              child: Text('Recent barrier reported',
-                                  style: TextStyle(
-                                      color: Colors.red.shade400,
-                                      fontWeight: FontWeight.bold,
-                                      fontSize: 12)),
-                            ),
-                          ],
-                        ),
+                    Hero(
+                      tag: tag,
+                      child: Material(
+                        type: MaterialType.transparency,
+                        child: ScoreRing(score: s, size: 72, stroke: 7),
                       ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            place.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w800),
+                          ),
+                          const SizedBox(height: 2),
+                          Row(
+                            children: [
+                              Icon(categoryIcon(place.category),
+                                  size: 15, color: cs.onSurfaceVariant),
+                              const SizedBox(width: 4),
+                              Expanded(
+                                child: Text(
+                                  '${place.category} \u00B7 ${place.address}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      fontSize: 13, color: cs.onSurfaceVariant),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: [
+                              InfoPill(
+                                  icon: Icons.verified_outlined,
+                                  text: place.confidence),
+                              InfoPill(
+                                  icon: Icons.chat_bubble_outline,
+                                  text: '${place.reviews.length} reviews',
+                                  color: cs.secondary),
+                              FreshnessPill(place: place),
+                            ],
+                          ),
+                          const SizedBox(height: 10),
+                          _CriteriaStrip(place: place),
+                          if (place.hasRecentBarrier)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 8),
+                              child: InfoPill(
+                                icon: Icons.warning_amber_rounded,
+                                text: 'Recent barrier reported',
+                                color: Color(0xFFC62828),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    SavedHeart(placeId: place.id),
                   ],
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -227,3 +298,44 @@ class PlaceCard extends StatelessWidget {
   }
 }
 
+/// Five small icon badges, one per criterion, coloured by that rating.
+class _CriteriaStrip extends StatelessWidget {
+  final Place place;
+  const _CriteriaStrip({required this.place});
+
+  @override
+  Widget build(BuildContext context) {
+    final desc = criteria.map((k) {
+      final a = place.criterionAvg(k);
+      return '${criteriaLabels[k]} ${a == null ? "no ratings" : a.toStringAsFixed(1)}';
+    }).join(', ');
+
+    return Semantics(
+      label: 'Ratings: $desc',
+      child: ExcludeSemantics(
+        child: Row(
+          children: [
+            for (final k in criteria)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Builder(builder: (context) {
+                  final a = place.criterionAvg(k);
+                  final c = scoreColor(a == null ? null : a * 20);
+                  return Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: c.withAlpha(36),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(criterionIcon(criteriaLabels[k]!),
+                        size: 17, color: c),
+                  );
+                }),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}

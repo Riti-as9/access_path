@@ -2,10 +2,13 @@
 import 'package:provider/provider.dart';
 import 'models.dart';
 import 'store.dart';
+import 'ai_summary.dart';
 import 'review_screen.dart';
-import 'home_screen.dart' show scoreColor, scoreWord;
+import 'compare_screen.dart';
+import 'extras.dart';
+import 'ui_kit.dart';
 
-// Simple offline summary. Step 7 adds the Gemini AI summary on top of this.
+// Simple offline summary, used when the Gemini call is unavailable.
 String localSummary(Place p) {
   final avgs = <String, double>{};
   for (final k in criteria) {
@@ -32,9 +35,39 @@ String localSummary(Place p) {
 
 String fmtDate(DateTime d) => '${d.day}/${d.month}/${d.year}';
 
+class _Panel extends StatelessWidget {
+  final Widget child;
+  final EdgeInsets padding;
+  final Gradient? gradient;
+  final Color? borderColor;
+  const _Panel({
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+    this.gradient,
+    this.borderColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Container(
+      width: double.infinity,
+      padding: padding,
+      decoration: BoxDecoration(
+        color: cs.surface,
+        gradient: gradient,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: borderColor ?? cs.outlineVariant.withAlpha(120)),
+      ),
+      child: child,
+    );
+  }
+}
+
 class PlaceDetailScreen extends StatelessWidget {
   final String placeId;
-  const PlaceDetailScreen({super.key, required this.placeId});
+  final String? heroTag;
+  const PlaceDetailScreen({super.key, required this.placeId, this.heroTag});
 
   @override
   Widget build(BuildContext context) {
@@ -45,11 +78,27 @@ class PlaceDetailScreen extends StatelessWidget {
     }
     final profile = store.profile;
     final s = place.score(profile);
+    final sc = scoreColor(s);
+    final cs = Theme.of(context).colorScheme;
     final reviews = [...place.reviews]
       ..sort((a, b) => b.date.compareTo(a.date));
 
+    Widget ring = PulseOnChange(
+      value: s?.round(),
+      child: ScoreRing(score: s, size: 104, stroke: 10),
+    );
+    if (heroTag != null) {
+      ring = Hero(
+        tag: heroTag!,
+        child: Material(type: MaterialType.transparency, child: ring),
+      );
+    }
+
     return Scaffold(
-      appBar: AppBar(title: Text(place.name)),
+      appBar: AppBar(
+        title: Text(place.name),
+        actions: [SavedHeart(placeId: place.id)],
+      ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => Navigator.push(
           context,
@@ -59,123 +108,245 @@ class PlaceDetailScreen extends StatelessWidget {
         label: const Text('Add review'),
       ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 100),
         children: [
-          // Barrier warning
-          if (place.hasRecentBarrier)
-            Container(
-              padding: const EdgeInsets.all(12),
-              margin: const EdgeInsets.only(bottom: 12),
-              decoration: BoxDecoration(
-                color: Colors.red.shade50,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.red.shade300),
+          // ---- Score header ----
+          FadeSlideIn(
+            child: _Panel(
+              padding: const EdgeInsets.all(18),
+              borderColor: sc.withAlpha(90),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [sc.withAlpha(46), cs.surface],
               ),
               child: Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded, color: Colors.red.shade700),
-                  const SizedBox(width: 8),
+                  ring,
+                  const SizedBox(width: 16),
                   Expanded(
-                    child: Text(
-                      'Recent barrier reported: a lift or step-free route was rated 1 star in the last 30 days.',
-                      style: TextStyle(
-                          color: Colors.red.shade900,
-                          fontWeight: FontWeight.w600),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-          // Score header
-          Row(
-            children: [
-              Semantics(
-                label: s == null
-                    ? 'No accessibility score yet'
-                    : 'Accessibility score ${s.round()} out of 100 for ${profile.label}, ${scoreWord(s)}',
-                child: ExcludeSemantics(
-                  child: Container(
-                    width: 96,
-                    height: 96,
-                    decoration: BoxDecoration(
-                      color: scoreColor(s),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
                     child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(s == null ? '-' : s.round().toString(),
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 36,
-                                fontWeight: FontWeight.bold)),
-                        Text(scoreWord(s),
-                            style: const TextStyle(color: Colors.white)),
+                        Text(place.name,
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(categoryIcon(place.category),
+                                size: 16, color: cs.onSurfaceVariant),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                '${place.category} \u00B7 ${place.address}',
+                                style: TextStyle(color: cs.onSurfaceVariant),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            InfoPill(
+                                icon: profileIcon(profile.label),
+                                text: 'For ${profile.label}'),
+                            InfoPill(
+                                icon: Icons.verified_outlined,
+                                text:
+                                '${place.confidence} \u00B7 ${place.reviews.length} reviews',
+                                color: cs.secondary),
+                            FreshnessPill(place: place),
+                          ],
+                        ),
                       ],
                     ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Score for ${profile.label}',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    Text('${place.category} Â· ${place.address}'),
-                    const SizedBox(height: 4),
-                    Text('${place.confidence} Â· ${place.reviews.length} reviews',
-                        style: Theme.of(context).textTheme.bodySmall),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          // Community summary
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      const Icon(Icons.auto_awesome),
-                      const SizedBox(width: 8),
-                      Text('Community summary',
-                          style: Theme.of(context).textTheme.titleMedium),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(localSummary(place)),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 16),
 
-          // Per-criterion bars
-          Text('Ratings', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          for (final key in criteria) _CriterionRow(place: place, keyName: key, profile: profile),
-          const SizedBox(height: 16),
+          // ---- Barrier warning ----
+          if (place.hasRecentBarrier)
+            FadeSlideIn(
+              index: 1,
+              child: Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: _Panel(
+                  padding: const EdgeInsets.all(14),
+                  borderColor: Colors.red.shade300,
+                  gradient: LinearGradient(
+                    colors: [Colors.red.withAlpha(30), cs.surface],
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.warning_amber_rounded,
+                          color: Colors.red.shade700, size: 28),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          'Recent barrier reported: a lift or step-free route was rated 1 star in the last 30 days.',
+                          style: TextStyle(
+                              color: cs.onSurface, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
 
-          // Reviews
-          Text('Reviews', style: Theme.of(context).textTheme.titleMedium),
-          const SizedBox(height: 8),
-          if (reviews.isEmpty) const Text('No reviews yet.'),
-          for (final r in reviews)
-            Card(
-              child: ListTile(
-                title: Text(r.comment.isEmpty ? '(no comment)' : r.comment),
-                subtitle: Text(fmtDate(r.date)),
+          // ---- Community summary (AI) ----
+          const SectionTitle('Community summary', icon: Icons.auto_awesome),
+          FadeSlideIn(
+            index: 2,
+            child: _Panel(
+              borderColor: cs.primary.withAlpha(90),
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [cs.primaryContainer.withAlpha(110), cs.surface],
+              ),
+              child: SummaryBody(
+                  place: place, fallback: localSummary(place), profile: profile),
+            ),
+          ),
+
+          // ---- Why this score ----
+          const SizedBox(height: 12),
+          FadeSlideIn(index: 3, child: _WhyScore(profile: profile)),
+
+          // ---- Radar chart ----
+          const SectionTitle('At a glance', icon: Icons.radar),
+          FadeSlideIn(
+            index: 4,
+            child: _Panel(child: RadarChart(place: place)),
+          ),
+
+          // ---- Ratings ----
+          const SectionTitle('Ratings', icon: Icons.bar_chart_rounded),
+          FadeSlideIn(
+            index: 5,
+            child: _Panel(
+              child: Column(
+                children: [
+                  for (final key in criteria)
+                    _CriterionRow(
+                        place: place, keyName: key, profile: profile),
+                ],
+              ),
+            ),
+          ),
+
+          // ---- Compare ----
+          const SizedBox(height: 14),
+          OutlinedButton.icon(
+            onPressed: () => Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (_) => CompareScreen(initialAId: place.id)),
+            ),
+            icon: const Icon(Icons.compare_arrows),
+            label: const Text('Compare with another place'),
+          ),
+
+          // ---- Reviews ----
+          const SectionTitle('Reviews', icon: Icons.forum_outlined),
+          if (reviews.isEmpty)
+            const _Panel(child: Text('No reviews yet. Be the first!')),
+          for (var j = 0; j < reviews.length; j++)
+            FadeSlideIn(
+              index: j,
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _Panel(
+                  padding: const EdgeInsets.all(14),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      CircleAvatar(
+                        radius: 18,
+                        backgroundColor: cs.primaryContainer,
+                        child: Icon(Icons.person_outline,
+                            size: 20, color: cs.onPrimaryContainer),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(reviews[j].comment.isEmpty
+                                ? '(no comment)'
+                                : reviews[j].comment),
+                            const SizedBox(height: 4),
+                            Text(fmtDate(reviews[j].date),
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .bodySmall
+                                    ?.copyWith(color: cs.onSurfaceVariant)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _WhyScore extends StatelessWidget {
+  final Profile profile;
+  const _WhyScore({required this.profile});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final ordered = [...criteria]
+      ..sort((a, b) =>
+          (profile.weights[b] ?? 0).compareTo(profile.weights[a] ?? 0));
+    return Container(
+      decoration: BoxDecoration(
+        color: cs.surface,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: cs.outlineVariant.withAlpha(120)),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(22),
+        child: ExpansionTile(
+          shape: const Border(),
+          collapsedShape: const Border(),
+          leading: Icon(Icons.help_outline, color: cs.primary),
+          title: Text('Why this score for ${profile.label}?',
+              style: const TextStyle(fontWeight: FontWeight.w700)),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          expandedCrossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Each category counts more or less depending on what '
+                '${profile.label.toLowerCase()} users need most. '
+                'The multiplier shows its weight:'),
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              runSpacing: 6,
+              children: [
+                for (final k in ordered)
+                  InfoPill(
+                    icon: criterionIcon(criteriaLabels[k]!),
+                    text: '${criteriaLabels[k]} x${profile.weights[k] ?? 0}',
+                  ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -193,6 +364,8 @@ class _CriterionRow extends StatelessWidget {
     final avg = place.criterionAvg(keyName);
     final keyForYou = profile.weights[keyName] == 3;
     final label = criteriaLabels[keyName]!;
+    final c = scoreColor(avg == null ? null : avg * 20);
+    final cs = Theme.of(context).colorScheme;
 
     return Semantics(
       label: avg == null
@@ -200,30 +373,62 @@ class _CriterionRow extends StatelessWidget {
           : '$label: ${avg.toStringAsFixed(1)} out of 5',
       child: ExcludeSemantics(
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Expanded(child: Text(label)),
-                  if (keyForYou)
-                    const Padding(
-                      padding: EdgeInsets.only(right: 8),
-                      child: Chip(
-                        label: Text('Key for you', style: TextStyle(fontSize: 11)),
-                        visualDensity: VisualDensity.compact,
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: c.withAlpha(36),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(criterionIcon(label), color: c, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(label,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.w600)),
+                        ),
+                        if (keyForYou)
+                          Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: InfoPill(
+                                icon: Icons.star_rounded,
+                                text: 'Key for you',
+                                color: cs.tertiary),
+                          ),
+                        Text(
+                          avg == null ? 'No ratings' : '${avg.toStringAsFixed(1)}/5',
+                          style: TextStyle(
+                              fontWeight: FontWeight.w700, color: c),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    TweenAnimationBuilder<double>(
+                      tween: Tween(begin: 0, end: avg == null ? 0 : avg / 5),
+                      duration: const Duration(milliseconds: 800),
+                      curve: Curves.easeOutCubic,
+                      builder: (context, v, _) => ClipRRect(
+                        borderRadius: BorderRadius.circular(6),
+                        child: LinearProgressIndicator(
+                          value: v,
+                          minHeight: 8,
+                          backgroundColor: c.withAlpha(36),
+                          color: c,
+                        ),
                       ),
                     ),
-                  Text(avg == null ? 'No ratings' : '${avg.toStringAsFixed(1)}/5'),
-                ],
-              ),
-              const SizedBox(height: 4),
-              LinearProgressIndicator(
-                value: avg == null ? 0 : avg / 5,
-                minHeight: 10,
-                borderRadius: BorderRadius.circular(5),
-                color: scoreColor(avg == null ? null : avg * 20),
+                  ],
+                ),
               ),
             ],
           ),
@@ -232,4 +437,3 @@ class _CriterionRow extends StatelessWidget {
     );
   }
 }
-
